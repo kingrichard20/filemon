@@ -15,7 +15,15 @@ namespace filemon
 #pragma region Private props
     //
     const char *m_fileName;
+
     FileHandle m_file;
+
+// OS-dependent monitoring props
+#if FILEMON_TARGET_LINUX
+    int m_notifInstance;
+    int m_notifWatch;
+#endif
+
 //
 #pragma endregion
 
@@ -31,13 +39,13 @@ namespace filemon
 #pragma region Methods
     //
 
-    // Opens the file
+    // Opens the target file
     filemon::Status open();
 
-    // Closes the file
+    // Closes the target file
     filemon::Status close();
 
-    // Wait for file change event. This blocks
+    // Wait for file change event. This blocks.
     filemon::Status getEvent(filemon::Event &ev);
 
 //
