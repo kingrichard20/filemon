@@ -1,0 +1,1 @@
+Very simple cross-platform and header-only library for monitoring changes to files.
