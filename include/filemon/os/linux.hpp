@@ -1,5 +1,8 @@
 #pragma once
 
+#if FILEMON_TARGET_LINUX
+//
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/inotify.h>
@@ -7,9 +10,6 @@
 
 #include <filemon/os/defs.h>
 #include <filemon/monitor.h>
-
-#if FILEMON_TARGET_LINUX
-//
 
 #pragma region C/dtor impl
 
