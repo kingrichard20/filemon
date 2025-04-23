@@ -7,9 +7,7 @@ namespace filemon
 #pragma region MacOS defs
 //
 #if FILEMON_TARGET_MACOS
-
   using FileHandle = int;
-
 #endif
 //
 #pragma endregion
@@ -27,6 +25,8 @@ namespace filemon
 #pragma region Win64 defs
 //
 #if FILEMON_TARGET_WIN64
+
+  #include <Windows.h>
 
   using FileHandle = HANDLE;
 
