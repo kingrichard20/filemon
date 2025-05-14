@@ -3,23 +3,28 @@
 namespace filemon
 {
 
+  // Not sure which I will use
   enum Status
   {
     Ok = 0,
+
+    // The file probably does not exist
     OpenFailed,
-    CloseFailed,
+    // CloseFailed,
     FileMoved,
     FileDeleted,
 
+    AlreadyRunning,
+
     // Couldn't get file size
-    StatFailed,
+    // StatFailed,
 
     // Linux-only
-    INotifyInitFailed,
-    INotifyAddWatchFailed,
-    INotifyReadFailed,
-    INotifyRemoveWatchFailed,
-    INotifyCloseFailed,
+    // INotifyInitFailed,
+    // INotifyAddWatchFailed,
+    // INotifyReadFailed,
+    // INotifyRemoveWatchFailed,
+    // INotifyCloseFailed,
 
   };
 

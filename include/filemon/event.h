@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <filemon/status.h>
 
 namespace filemon
 {
@@ -16,6 +17,7 @@ namespace filemon
   {
     EventType type;
     size_t fileSize;
+    // Status status;
   };
 
 }

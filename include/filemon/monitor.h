@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <thread>
 
 #include <filemon/status.h>
 #include <filemon/event.h>
@@ -9,59 +10,59 @@
 namespace filemon
 {
 
+  using MonitorCallback = void(filemon::Event &);
+
   // TODO: Let's not use blocking and run the event check on another thread
   class FileMonitor
   {
+
+    // Private props
   private:
-#pragma region Private props
-    //
     const char *m_fileName;
     FileHandle m_file;
 
-    // We can use this to ensure an attribute change is for the size of a file
-    size_t m_fileSize;
+    bool m_isRunning;
+    std::thread m_runThread;
+    MonitorCallback *m_callback;
 
-// OS-dependent monitoring props
+    // We can use this to ensure an attribute change is for the size of a file
+    // size_t m_fileSize;
+
+// OS-dependent
 #if FILEMON_TARGET_LINUX
     int m_notifInstance;
     int m_notifWatch;
 #endif
 
 #if FILEMON_TARGET_MACOS
+
     int m_kqueueDesc;
-    kevent64_s m_changeList;
-    kevent64_s m_eventList;
+
+    // One will have a filter for file descriptors, the other will have a filter for user events
+    kevent64_s m_changeList[2];
+
+    // One will be a file-related event, the other will be the user event to stop kevent from blocking
+    // kevent64_s m_eventList[2];
+
 #endif
 
-//
-#pragma endregion
+    // Private methods
+  private:
+    static void ThreadFn(FileMonitor *monitor);
 
   public:
-#pragma region C/dtors
-    //
-
-    FileMonitor();
-
+    // C/dtors
     FileMonitor(std::string &fileName);
     FileMonitor(const char *fileName);
     ~FileMonitor();
-//
-#pragma endregion
 
-#pragma region Methods
-    //
+    // Methods
 
-    // Opens the target file
-    filemon::Status open();
+    // Start monitoring
+    filemon::Status start(MonitorCallback *callback);
 
-    // Closes the target file
-    filemon::Status close();
-
-    // Wait for file change event. This blocks.
-    filemon::Status getEvent(filemon::Event &ev);
-
-//
-#pragma endregion
+    // Stop monitoring
+    void stop();
   };
 
 }
