@@ -1,55 +1,67 @@
 #pragma once
 
-#include <filemon/monitor.h>
 #include <filemon/os/defs.h>
 
 #if FILEMON_TARGET_LINUX
 //
 
+#include <poll.h>
+#include <fcntl.h>
+#include <cassert>
+#include <unistd.h>
+#include <sys/inotify.h>
+
+#include <filemon/monitor.h>
+#include <filemon/util.hpp>
+
 #pragma region Static methods
-void filemon::FileMonitor::ThreadFn(filemon::FileMonitor *monitor)
+void filemon::FileMonitor::ThreadFn(int file, int notifDesc, int pipeReadDesc, MonitorCallback *callback)
 {
 
   // Poll setup
-  struct pollfd pollDescs[2] = {{monitor->m_pipeReadDesc, POLLIN, 0}, {monitor->m_notifInstance, POLLIN, 0}};
-  nfds_t pollDescCount = (sizeof(pollDescs) / sizeof(pollfd));
-  pollfd *pollPipeRead = &pollDescs[0];
+  struct pollfd pollDescs[2] = {{pipeReadDesc, POLLIN, 0}, {notifDesc, POLLIN, 0}};
+  pollfd *pollPipe = &pollDescs[0];
   pollfd *pollNotif = &pollDescs[1];
 
   bool shouldRun = true;
-  inotify_event notifEvent;
-
   while (shouldRun)
   {
-    int pollResult = poll(pollDescs, pollDescCount, -1);
-    assert(0 < pollResult);
 
-    // Stop looping?
-    shouldRun = ((pollPipeRead->revents & POLLIN) != 1);
+    int pollResult = poll(pollDescs, (sizeof(pollDescs) / sizeof(pollfd)), -1);
 
-    // Continue if there's nothing
-    if (!(pollNotif->revents & POLLIN))
+    // Continue if zero
+    if (pollResult == 0)
     {
       continue;
     }
 
-    size_t bytesRead = read(monitor->m_notifInstance, &notifEvent, sizeof(inotify_event));
-    assert(bytesRead != -1);
-
-    if (notifEvent.mask & (IN_DELETE_SELF | IN_MOVE_SELF))
+    // Received message to stop
+    if ((pollPipe->revents & POLLIN) == 1)
     {
-
-      // Call callback
-      Event ev = {(notifEvent.mask & IN_DELETE_SELF) ? EventType::Delete : EventType::Move, 0};
-      monitor->m_callback(ev);
+      shouldRun = false;
     }
-    else
+    // Received notif
+    else if ((pollNotif->revents & POLLIN) == 1)
     {
-      size_t fileSize = filemon::util::getFileSize(monitor->m_file);
 
-      // Call callback
-      Event ev = {EventType::Modify, fileSize};
-      monitor->m_callback(ev);
+      inotify_event notifEvent;
+      size_t bytesRead = read(notifDesc, &notifEvent, sizeof(inotify_event));
+      // assert(bytesRead != -1); Should never be -1 because poll accepted it
+
+      Event ev;
+
+      if (notifEvent.mask & (IN_DELETE_SELF | IN_MOVE_SELF))
+      {
+        ev.type = ((notifEvent.mask & IN_DELETE_SELF) ? EventType::Delete : EventType::Move);
+        ev.fileSize = 0;
+      }
+      else
+      {
+        ev.type = EventType::Modify;
+        ev.fileSize = filemon::util::getFileSize(file);
+      }
+
+      callback(ev);
     }
   }
 }
@@ -65,7 +77,7 @@ filemon::FileMonitor::FileMonitor(std::string &fileName)
   m_isRunning = false;
   m_callback = nullptr;
 
-  m_notifInstance = -1;
+  m_notifDesc = -1;
   m_notifWatch = -1;
   m_pipeReadDesc = -1;
   m_pipeWriteDesc = -1;
@@ -77,7 +89,7 @@ filemon::FileMonitor::FileMonitor(const char *fileName)
   m_isRunning = false;
   m_callback = nullptr;
 
-  m_notifInstance = -1;
+  m_notifDesc = -1;
   m_notifWatch = -1;
   m_pipeReadDesc = -1;
   m_pipeWriteDesc = -1;
@@ -90,8 +102,8 @@ filemon::FileMonitor::~FileMonitor()
     this->stop();
   }
 
-  inotify_rm_watch(m_notifInstance, m_notifWatch);
-  close(m_notifInstance);
+  inotify_rm_watch(m_notifDesc, m_notifWatch);
+  close(m_notifDesc);
   close(m_file);
 }
 
@@ -120,11 +132,11 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
   }
 
   // We haven't created everything
-  if (m_notifInstance == -1)
+  if (m_notifDesc == -1)
   {
     // Is it realistic to expect these to fail?
-    m_notifInstance = inotify_init();
-    m_notifWatch = inotify_add_watch(m_notifInstance, m_fileName, (IN_MODIFY | IN_DELETE_SELF | IN_MOVE_SELF));
+    m_notifDesc = inotify_init();
+    m_notifWatch = inotify_add_watch(m_notifDesc, m_fileName, (IN_MODIFY | IN_DELETE_SELF | IN_MOVE_SELF));
 
     int pipeDescs[2];
     pipe(pipeDescs);
@@ -134,7 +146,7 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
 
   m_callback = callback;
 
-  m_runThread = std::thread(filemon::FileMonitor::ThreadFn, this);
+  m_runThread = std::thread(filemon::FileMonitor::ThreadFn, m_file, m_notifDesc, m_pipeReadDesc, m_callback);
 
   m_isRunning = true;
 

@@ -35,7 +35,7 @@ namespace filemon
 // OS-dependent
 #if FILEMON_TARGET_LINUX
 
-    int m_notifInstance;
+    int m_notifDesc;
     int m_notifWatch;
 
     // Self-pipe to stop read() from blocking
@@ -58,8 +58,13 @@ namespace filemon
 
     // Private methods
   private:
+#ifdef FILEMON_TARGET_LINUX
+    static void ThreadFn(int file, int notifDesc, int pipeReadDesc, MonitorCallback *callback);
+
+#elif
     // May not need to pass the entire class
     static void ThreadFn(FileMonitor *monitor);
+#endif
 
   public:
     // C/dtors
