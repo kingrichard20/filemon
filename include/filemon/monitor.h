@@ -2,6 +2,7 @@
 
 #include <string>
 #include <thread>
+#include <mutex>
 
 #include <filemon/status.h>
 #include <filemon/event.h>
@@ -21,6 +22,7 @@ namespace filemon
     const char *m_fileName;
     FileHandle m_file;
 
+    std::mutex m_runMutex;
     bool m_isRunning;
     std::thread m_runThread;
     MonitorCallback *m_callback;
