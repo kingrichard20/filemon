@@ -3,3 +3,4 @@ main.cpp
 /bin
 /test_data
 .DS_Store
+/hidden

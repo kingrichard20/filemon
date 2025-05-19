@@ -1,123 +1,165 @@
-// #pragma once
+#pragma once
 
-// #if FILEMON_TARGET_LINUX
-// //
+#include <filemon/monitor.h>
+#include <filemon/os/defs.h>
 
-// #include <fcntl.h>
-// #include <sys/stat.h>
-// #include <sys/inotify.h>
-// #include <unistd.h>
+#if FILEMON_TARGET_LINUX
+//
 
-// #include <filemon/os/defs.h>
-// #include <filemon/monitor.h>
+#pragma region Static methods
+void filemon::FileMonitor::ThreadFn(filemon::FileMonitor *monitor)
+{
 
-// #pragma region C/dtor impl
+  // Poll setup
+  struct pollfd pollDescs[2] = {{monitor->m_pipeReadDesc, POLLIN, 0}, {monitor->m_notifInstance, POLLIN, 0}};
+  nfds_t pollDescCount = (sizeof(pollDescs) / sizeof(pollfd));
+  pollfd *pollPipeRead = &pollDescs[0];
+  pollfd *pollNotif = &pollDescs[1];
 
-// filemon::FileMonitor::FileMonitor(std::string &fileName)
-// {
-//   m_fileName = fileName.c_str();
-// }
+  bool shouldRun = true;
+  inotify_event notifEvent;
 
-// filemon::FileMonitor::FileMonitor(const char *fileName)
-// {
-//   m_fileName = fileName;
-// }
+  while (shouldRun)
+  {
+    int pollResult = poll(pollDescs, pollDescCount, -1);
+    assert(0 < pollResult);
 
-// filemon::FileMonitor::~FileMonitor()
-// {
-//   // this->close() ?
-// }
+    // Stop looping?
+    shouldRun = ((pollPipeRead->revents & POLLIN) != 1);
 
-// #pragma endregion
+    // Continue if there's nothing
+    if (!(pollNotif->revents & POLLIN))
+    {
+      continue;
+    }
 
-// #pragma region Method impl
+    size_t bytesRead = read(monitor->m_notifInstance, &notifEvent, sizeof(inotify_event));
+    assert(bytesRead != -1);
 
-// filemon::Status filemon::FileMonitor::open()
-// {
-//   m_file = ::open(m_fileName, O_RDONLY);
-//   if (m_file == -1)
-//   {
-//     return filemon::Status::OpenFailed;
-//   }
+    if (notifEvent.mask & (IN_DELETE_SELF | IN_MOVE_SELF))
+    {
 
-//   m_notifInstance = inotify_init();
-//   if (m_notifInstance == -1)
-//   {
-//     return filemon::Status::INotifyInitFailed;
-//   }
+      // Call callback
+      Event ev = {(notifEvent.mask & IN_DELETE_SELF) ? EventType::Delete : EventType::Move, 0};
+      monitor->m_callback(ev);
+    }
+    else
+    {
+      size_t fileSize = filemon::util::getFileSize(monitor->m_file);
 
-//   m_notifWatch = inotify_add_watch(m_notifInstance, m_fileName, (IN_MODIFY | IN_DELETE_SELF | IN_MOVE_SELF));
-//   if (m_notifWatch == -1)
-//   {
-//     return filemon::Status::INotifyAddWatchFailed;
-//   }
+      // Call callback
+      Event ev = {EventType::Modify, fileSize};
+      monitor->m_callback(ev);
+    }
+  }
+}
 
-//   return filemon::Status::Ok;
-// }
+#pragma endregion
 
-// filemon::Status filemon::FileMonitor::close()
-// {
+#pragma region C/dtor impl
 
-//   // These can fail?
+filemon::FileMonitor::FileMonitor(std::string &fileName)
+{
+  m_fileName = fileName.c_str();
+  m_file = -1;
+  m_isRunning = false;
+  m_callback = nullptr;
 
-//   if (inotify_rm_watch(m_notifInstance, m_notifWatch) == -1)
-//   {
-//     return filemon::Status::INotifyRemoveWatchFailed;
-//   }
+  m_notifInstance = -1;
+  m_notifWatch = -1;
+  m_pipeReadDesc = -1;
+  m_pipeWriteDesc = -1;
+}
+filemon::FileMonitor::FileMonitor(const char *fileName)
+{
+  m_fileName = fileName;
+  m_file = -1;
+  m_isRunning = false;
+  m_callback = nullptr;
 
-//   if (::close(m_notifInstance) == -1)
-//   {
-//     return filemon::Status::INotifyCloseFailed;
-//   }
+  m_notifInstance = -1;
+  m_notifWatch = -1;
+  m_pipeReadDesc = -1;
+  m_pipeWriteDesc = -1;
+}
 
-//   if (::close(m_file) == -1)
-//   {
-//     return filemon::Status::CloseFailed;
-//   }
+filemon::FileMonitor::~FileMonitor()
+{
+  if (m_isRunning)
+  {
+    this->stop();
+  }
 
-//   return filemon::Status::Ok;
-// }
+  inotify_rm_watch(m_notifInstance, m_notifWatch);
+  close(m_notifInstance);
+  close(m_file);
+}
 
-// filemon::Status filemon::FileMonitor::getEvent(filemon::Event &ev)
-// {
+#pragma endregion
 
-//   inotify_event notifEvent;
+#pragma region Methods
 
-//   // This blocks. Should I change that in the future?
-//   // Read from the inotify descriptor, not the watch
-//   size_t bytesRead = read(m_notifInstance, &notifEvent, sizeof(inotify_event));
-//   if (bytesRead == -1)
-//   {
-//     return filemon::Status::INotifyReadFailed;
-//   }
+// Maybe have an error callback and remove the return type?
+filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
+{
 
-//   // Was it moved or deleted?
-//   if (notifEvent.mask & (IN_DELETE_SELF | IN_MOVE_SELF))
-//   {
+  std::lock_guard<std::mutex> lock(m_runMutex);
 
-//     ev.type = (notifEvent.mask & IN_DELETE_SELF) ? filemon::EventType::Delete : filemon::EventType::Modify;
-//     ev.fileSize = 0;
+  if (m_isRunning)
+  {
+    return filemon::Status::AlreadyRunning;
+  }
 
-//     return (notifEvent.mask & IN_DELETE_SELF) ? filemon::Status::FileDeleted : filemon::Status::FileMoved;
-//   }
+  if (m_file == -1 || fcntl(m_file, F_GETFD) == -1)
+  {
+    m_file = open(m_fileName, O_RDONLY);
+    if (m_file == -1)
+    {
+      return Status::OpenFailed;
+    }
+  }
 
-//   if (notifEvent.mask & IN_MODIFY)
-//   {
-//     struct stat64 fileStats;
-//     if (fstat64(m_file, &fileStats) == -1)
-//     {
-//       return filemon::Status::StatFailed;
-//     }
+  // We haven't created everything
+  if (m_notifInstance == -1)
+  {
+    // Is it realistic to expect these to fail?
+    m_notifInstance = inotify_init();
+    m_notifWatch = inotify_add_watch(m_notifInstance, m_fileName, (IN_MODIFY | IN_DELETE_SELF | IN_MOVE_SELF));
 
-//     // Either the status or type are redundant
-//     ev.type = filemon::EventType::Modify;
-//     ev.fileSize = fileStats.st_size;
-//   }
+    int pipeDescs[2];
+    pipe(pipeDescs);
+    m_pipeReadDesc = pipeDescs[0];
+    m_pipeWriteDesc = pipeDescs[1];
+  }
 
-//   return filemon::Status::Ok;
-// }
+  m_callback = callback;
 
-// #pragma endregion
+  m_runThread = std::thread(filemon::FileMonitor::ThreadFn, this);
 
-// //
-// #endif
+  m_isRunning = true;
+
+  return Status::Ok;
+}
+
+void filemon::FileMonitor::stop()
+{
+
+  std::lock_guard<std::mutex> lock(m_runMutex);
+
+  if (!m_isRunning)
+  {
+    return;
+  }
+
+  write(m_pipeWriteDesc, "\0", 1);
+
+  // Join thread
+  m_runThread.join();
+
+  m_isRunning = false;
+}
+
+#pragma endregion
+
+//
+#endif

@@ -6,4 +6,4 @@
 
 #define FILEMON_TARGET_LINUX (__linux__)
 
-#define FILEMON_TARGET_WIN64 (_WIN64) // May make a Windows version someday
+#define FILEMON_TARGET_WIN64 (_WIN64)

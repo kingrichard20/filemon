@@ -25,3 +25,22 @@ namespace filemon::util
 }
 //
 #endif
+
+#if FILEMON_TARGET_LINUX
+//
+
+namespace filemon::util
+{
+
+  size_t getFileSize(FileHandle file)
+  {
+    struct stat64 fileStats;
+    fstat64(file, &fileStats);
+
+    return fileStats.st_size;
+  }
+
+}
+
+//
+#endif
