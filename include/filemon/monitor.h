@@ -58,10 +58,10 @@ namespace filemon
 
     // Private methods
   private:
-#ifdef FILEMON_TARGET_LINUX
+#if FILEMON_TARGET_LINUX
     static void ThreadFn(int file, int notifDesc, int pipeReadDesc, MonitorCallback *callback);
 
-#elif
+#elif FILEMON_TARGET_MACOS
     // May not need to pass the entire class
     static void ThreadFn(FileMonitor *monitor);
 #endif

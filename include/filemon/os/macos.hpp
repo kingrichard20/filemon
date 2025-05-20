@@ -108,6 +108,8 @@ filemon::FileMonitor::~FileMonitor()
 
 filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
 {
+  std::lock_guard<std::mutex> lock(m_runMutex);
+
   if (m_isRunning)
   {
     return filemon::Status::AlreadyRunning;
@@ -161,6 +163,8 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
 
 void filemon::FileMonitor::stop()
 {
+  std::lock_guard<std::mutex> lock(m_runMutex);
+
   if (!m_isRunning)
   {
     return;
