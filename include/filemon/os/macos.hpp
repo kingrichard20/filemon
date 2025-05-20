@@ -162,6 +162,13 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
   return Status::Ok;
 }
 
+filemon::FileHandle filemon::FileMonitor::getFile()
+{
+  std::lock_guard<std::mutex> lock(m_runMutex);
+
+  return m_file;
+}
+
 void filemon::FileMonitor::stop()
 {
   std::lock_guard<std::mutex> lock(m_runMutex);
