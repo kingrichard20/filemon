@@ -8,20 +8,25 @@
 //
 
 const int KQUEUE_STOP_ID = -1;
+const unsigned long KQUEUE_NCHANGESEVENTS = 2;
 
 #pragma region Static methods
-void filemon::FileMonitor::ThreadFn(filemon::FileMonitor *monitor)
+void filemon::FileMonitor::ThreadFn(int file, int kqueueDesc, const kevent64_s *changeList, MonitorCallback *callback)
 {
-  size_t fileSize = filemon::util::getFileSize(monitor->m_file);
+  size_t fileSize = filemon::util::getFileSize(file);
 
   bool shouldRun = true;
   while (shouldRun)
   {
     kevent64_s eventList[2];
 
-    int evCount = kevent64(monitor->m_kqueueDesc, monitor->m_changeList, (sizeof(monitor->m_changeList) / sizeof(kevent64_s)), eventList, (sizeof(eventList) / sizeof(kevent64_s)), 0, nullptr);
+    int evCount = kevent64(kqueueDesc, changeList, KQUEUE_NCHANGESEVENTS, eventList, KQUEUE_NCHANGESEVENTS, 0, nullptr);
     // TODO: Handle errors
-    // if(evCount == -1)
+    if (evCount == -1)
+    {
+      int error = errno;
+      assert(false);
+    }
 
     for (int i = evCount - 1; i >= 0; --i)
     {
@@ -39,9 +44,11 @@ void filemon::FileMonitor::ThreadFn(filemon::FileMonitor *monitor)
       // On return, fflags contains	the events which triggered the filter.
       // https://man.freebsd.org/cgi/man.cgi?kevent
 
+      Event ev;
+
       if (currentEvent->fflags & (NOTE_WRITE | NOTE_ATTRIB))
       {
-        size_t newFileSize = filemon::util::getFileSize(monitor->m_file);
+        size_t newFileSize = filemon::util::getFileSize(file);
 
         // Size did not change
         if (newFileSize == fileSize)
@@ -52,20 +59,17 @@ void filemon::FileMonitor::ThreadFn(filemon::FileMonitor *monitor)
         // Set new file size
         fileSize = newFileSize;
 
-        // Call callback
-        Event ev = {EventType::Modify, fileSize};
-        monitor->m_callback(ev);
-
-        // fmt::println("[i] File modified, file size: {}", fileSize);
+        ev.type = EventType::Modify;
+        ev.fileSize = fileSize;
       }
       else if (currentEvent->fflags & (NOTE_RENAME | NOTE_DELETE))
       {
-        // Call callback
-        Event ev = {
-            ((currentEvent->fflags & NOTE_RENAME) ? EventType::Move : EventType::Delete),
-            fileSize};
-        monitor->m_callback(ev);
+        ev.type = ((currentEvent->fflags & NOTE_RENAME) ? EventType::Move : EventType::Delete);
+        ev.fileSize = 0;
       }
+
+      // Call callback
+      callback(ev);
     }
   }
 }
@@ -80,7 +84,7 @@ filemon::FileMonitor::FileMonitor(std::string &fileName)
   m_file = -1;
   m_isRunning = false;
   m_callback = nullptr;
-  // m_fileSize = 0;
+  m_kqueueDesc = -1;
 }
 filemon::FileMonitor::FileMonitor(const char *fileName)
 {
@@ -88,7 +92,7 @@ filemon::FileMonitor::FileMonitor(const char *fileName)
   m_file = -1;
   m_isRunning = false;
   m_callback = nullptr;
-  // m_fileSize = 0;
+  m_kqueueDesc = -1;
 }
 
 filemon::FileMonitor::~FileMonitor()
@@ -138,6 +142,7 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
       (EV_ADD | EV_ENABLE | EV_CLEAR),
       (NOTE_WRITE | NOTE_ATTRIB | NOTE_DELETE | NOTE_RENAME),
       0, 0, 0, 0);
+
   // User event
   EV_SET64(
       &m_changeList[1],
@@ -153,7 +158,9 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
 
   m_callback = callback;
 
-  m_runThread = std::thread(filemon::FileMonitor::ThreadFn, this);
+  // void ThreadFn(int file, int kqueueDesc, const kevent64_s *changeList, MonitorCallback *callback)
+
+  m_runThread = std::thread(filemon::FileMonitor::ThreadFn, m_file, m_kqueueDesc, m_changeList, m_callback);
 
   m_isRunning = true;
 

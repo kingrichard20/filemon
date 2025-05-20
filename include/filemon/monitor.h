@@ -62,8 +62,12 @@ namespace filemon
     static void ThreadFn(int file, int notifDesc, int pipeReadDesc, MonitorCallback *callback);
 
 #elif FILEMON_TARGET_MACOS
+    static void ThreadFn(int file, int kqueueDesc, const kevent64_s *changeList, MonitorCallback *callback);
+
+#else
     // May not need to pass the entire class
     static void ThreadFn(FileMonitor *monitor);
+
 #endif
 
   public:
