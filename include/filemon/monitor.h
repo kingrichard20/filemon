@@ -77,6 +77,8 @@ namespace filemon
     // Start monitoring
     filemon::Status start(MonitorCallback *callback);
 
+    FileHandle getFile();
+
     // Stop monitoring
     void stop();
   };
