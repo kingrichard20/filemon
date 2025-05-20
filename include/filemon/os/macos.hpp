@@ -124,10 +124,11 @@ filemon::Status filemon::FileMonitor::start(MonitorCallback *callback)
     }
   }
 
-  // TODO: Avoid re-creating kqueue after calling stop()
-
   // Create kqueue and set up events
-  m_kqueueDesc = kqueue();
+  if (m_kqueueDesc == -1)
+  {
+    m_kqueueDesc = kqueue();
+  }
   // Changelist
   // File descriptor event
   EV_SET64(
